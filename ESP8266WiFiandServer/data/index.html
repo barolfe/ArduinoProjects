@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>Victron Battery Monitor</title>
+    <!--For offline ESP graphs see this tutorial https://circuits4you.com/2018/03/10/esp8266-jquery-and-ajax-web-server/ -->
+    <script src = "jquery.min.js"></script> 
+    <script src = "chart.min.js"></script>       
+    <style>
+    canvas{
+        -moz-user-select: none;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+    }
+
+    /* Data Table Styling */
+    #dataTable {
+      font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    #dataTable td, #dataTable th {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+
+    #dataTable tr:nth-child(even){background-color: #f2f2f2;}
+
+    #dataTable tr:hover {background-color: #ddd;}
+
+    #dataTable th {
+      padding-top: 12px;
+      padding-bottom: 12px;
+      text-align: left;
+      background-color: #4CAF50;
+      color: white;
+    }
+
+    #dataObject {
+        visibility: hidden;
+        display: none;
+    }
+
+
+    </style>
+</head>
+
+<body>
+    <div style="text-align:center;"><b>Victron Battery Moitor</b><br>Data logging with the ESP8266</div>
+    <div class="chart-container" position: relative; height:350px; width:100%">
+        <canvas id="Chart" width="400" height="400"></canvas>
+    </div>
+<div>
+    <table id="dataTable">
+      <tr><th>Time</th><th>SOC Value</th></tr>
+    </table>
+</div>
+<br>
+<br>    
+
+<div id="dataObject">
+</div>
+<script>
+//Graphs visit: https://www.chartjs.org
+var values = [];
+var timeStamp = [];
+function showGraph()
+{
+    for (i = 0; i < arguments.length; i++) {
+        values.push(arguments[i]);    
+    }
+
+    var ctx = document.getElementById("Chart").getContext('2d');
+    var Chart2 = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timeStamp,  //Bottom Labeling
+            datasets: [{
+                label: "SOC",
+                fill: false,    //Try with true
+                backgroundColor: 'rgba( 243, 156, 18 , 1)', //Dot marker color
+                borderColor: 'rgba( 243, 156, 18 , 1)', //Graph Line Color
+                data: values,
+            }],
+        },
+        options: {
+            title: {
+                    display: true,
+                    text: "SOC (%)"
+                },
+            maintainAspectRatio: false,
+            elements: {
+            line: {
+                    tension: 0.5 //Smoothening (Curved) of data lines
+                }
+            },
+            scales: {
+                    yAxes: [{
+                        ticks: {
+                            beginAtZero:true
+                        }
+                    }]
+            }
+        }
+    });
+
+}
+
+//On Page load show graphs
+window.onload = function() {
+    console.log(new Date().toLocaleTimeString());
+    showGraph(5,10,4,58);
+    var dataObj = document.getElementById("dataObject");
+    dataObj.innerHTML = "";
+    values = [];
+    timeStamp = [];
+    //$("#dataObject").load('/data.txt');
+    //processData();
+    //getLotsOfData();
+
+};
+
+//Ajax script to get ADC voltage at every 5 Seconds 
+//Read This tutorial https://circuits4you.com/2018/02/04/esp8266-ajax-update-part-of-web-page-without-refreshing/
+
+setInterval(function() {
+  // Call a function repetatively with 5 Second interval
+  getData();
+  //getLotsOfData();
+}, 1000); //5000mSeconds update rate
+ 
+function processData() {
+    var dataObj = document.getElementById("dataObject");
+    if (dataObj.innerHTML == "") {
+        setTimeout(processData, 1000); // call later when data is available
+    } else {
+        var dataRaw = dataObj.innerHTML;
+        var data = dataRaw.split("\n");
+        timeStamp = [];
+        values    = [];
+        for (var i = 0; i < data.length; i++) {
+            values.push(data[i]);
+            timeStamp.push(i);
+        }
+        showGraph();
+    }
+}
+
+function getData() {
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+     //Push the data in array
+    var time = new Date().toLocaleTimeString();
+    var ADCValue = this.responseText; 
+      values.push(ADCValue);
+      timeStamp.push(time);
+      showGraph();  //Update Graphs
+    //Update Data Table
+      var table = document.getElementById("dataTable");
+      var row = table.insertRow(1); //Add after headings
+      var cell1 = row.insertCell(0);
+      var cell2 = row.insertCell(1);
+      cell1.innerHTML = time;
+      cell2.innerHTML = ADCValue;
+    }
+  };
+  xhttp.open("GET", "readData", true);   //Handle readADC server on ESP8266
+  xhttp.send();
+}
+
+
+// Get (one) packet of data -- probably unnecessary bit of code if using jquery load() 
+function getLotsOfData() {
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+     //Push the data in array
+    var time = new Date().toLocaleTimeString();
+    var data = this.responseText;
+    var htmlDataObj = document.getElementById("dataObject");
+    htmlDataObj.innerHTML = htmlDataObj.innerHTML + data;
+    }
+  };
+  xhttp.open("GET", "readLotsOfData", true);   //Handle lots of data 
+  xhttp.send();
+}
+
+// Fill any x-axis gaps in data (e.g. a sudden jump from 6 to 30, if the interval is expected to be 5)
+function fillGapsInData() {
+
+}
+        
+</script>
+</body>
+
+</html>
