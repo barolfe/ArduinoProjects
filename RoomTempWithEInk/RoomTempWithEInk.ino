@@ -89,6 +89,15 @@ GxEPD_Class display(io /*RST=9*/ /*BUSY=7*/); // default selection of (9), 7
 #include <EEPROM.h>
 #include "eeprom_templates.h"
 
+#include <RPiCom.h>
+
+const char *ssid = "526Beacon";
+const char *pwd  = "simasucks";
+String raspi_addr = "http://192.168.100.34:5000/";
+String identifier = "e_ink";
+
+RPiCom rpi(raspi_addr, identifier);
+
 #define HIST_LEN  512
 float history[HIST_LEN];
 unsigned int hist_pos = 0;
@@ -97,7 +106,7 @@ unsigned int interval_min = 3;
 float t_min = 100;
 float t_max = 0;
 int x_min = 0;
-bool b_update_to_cloud = false;
+bool b_update_to_cloud = true;
 
 // GPIO where the DS18B20 is connected to
 const int oneWireBus = D1;     
@@ -113,12 +122,6 @@ unsigned long t_last = 0;
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 
-// Replace with your SSID and password details
-char ssid[] = "526Beacon";        
-char pass[] = "simasucks";
-
-const char server[] = "www.bryanrolfe.com";
-String key = "bobs_your_uncle";
 
 // Function prototypes
 float getTemp(int n);
@@ -182,7 +185,10 @@ void loop() {
 
   if (b_update_to_cloud) {
     if (connectToWifi()) {
-      makeGetRequest(temp); // upload temp to cloud
+     // makeGetRequest(temp); // upload temp to cloud
+      Serial.println("Sending data packet to RPI at: " + raspi_addr);
+      String resp = rpi.sendLuxTempHumid(0, temp, 0);
+      Serial.println(resp);
       //WiFi.end(); // there is currently no way to turn off the WiFi, but when put into deep sleep it will be disabled
     }
   }
@@ -190,6 +196,9 @@ void loop() {
   //delay(interval_min*60*1000);
 }
 
+
+
+/* BEGIN FUNCTION DEFS */
 float getTemp(int n) {
   float t_avg = 0;
   for (int i = 0; i < n; i ++) {
@@ -283,8 +292,8 @@ void checkTMinMax(float & t_min, float & t_max) {
 }
 
 bool connectToWifi() {
- WiFi.begin(ssid,pass);
   Serial.println("connecting");
+  WiFi.begin(ssid, pwd);
   int cnt = 0;
   while (WiFi.status() != WL_CONNECTED) {
     if (cnt >= 10) {
@@ -297,6 +306,26 @@ bool connectToWifi() {
   Serial.println("WiFi Connected");
 }
 
+/*
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
 void makeGetRequest(float temp) {
   // close any connection before send a new request to allow client make connection to server
   client.stop();
@@ -323,6 +352,7 @@ void makeGetRequest(float temp) {
   }
   client.stop();
 }
+*/
   
 void showTemp(float temp, const GFXfont* font) {
   //float _temp = (int) (10 * (temp + 0.5)) / 10.0;
