@@ -46,10 +46,10 @@ const char* ssid = "526Beacon";
 const char* password = "simasucks";
 
 // General light/timer settings
-boolean timerMode = true;
+boolean timerMode = true; // NOT USED (it's implemented by the vivarium master controller, since this contains the RTC)
 boolean manual_on = false;
-unsigned int hour1 = 7; // simple for now
-unsigned int hour2 = 12 + 7;
+unsigned int hour1 = 7; // simple for now // NOT USED (see above)
+unsigned int hour2 = 12 + 7; // NOT USED (see above)
 unsigned long time_last_checked = 0;
 unsigned long time_last_update = 0;
 
