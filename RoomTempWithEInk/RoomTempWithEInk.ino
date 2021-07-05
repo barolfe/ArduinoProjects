@@ -106,7 +106,7 @@ unsigned int interval_min = 3;
 float t_min = 100;
 float t_max = 0;
 int x_min = 0;
-bool b_update_to_cloud = true;
+bool b_update_to_cloud = false;
 
 // GPIO where the DS18B20 is connected to
 const int oneWireBus = D1;     
@@ -142,7 +142,6 @@ WiFiClient client;
 void setup()
 {
 
-  delay(3000);
   Serial.begin(115200);
 
   display.init(115200); // enable diagnostic output on Serial
@@ -151,7 +150,7 @@ void setup()
   if (eeprom_size <= 4096) {
     EEPROM.begin(eeprom_size);
     // to clear memory:
-    if (false) {
+    if (true) {
       for (int i = 0; i < eeprom_size; i++) {
         EEPROM.write(i, 0);
       }
@@ -170,9 +169,7 @@ void setup()
   initHistory();
   
   Serial.println("setup done");
-}
 
-void loop() {
   readFromEEPROM();
   float temp = getTemp(10);
   Serial.println(temp);
@@ -192,7 +189,12 @@ void loop() {
       //WiFi.end(); // there is currently no way to turn off the WiFi, but when put into deep sleep it will be disabled
     }
   }
+  
   ESP.deepSleep(interval_min*60e06); // wake up every few minutes
+}
+
+void loop() {
+
   //delay(interval_min*60*1000);
 }
 

@@ -1,10 +1,18 @@
 #include <WiFiClient.h>
 
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
+#include "Wire.h"
+
 // Config (just a bunch of defines for device addresses)
 #include <Vivarium2Common.h> // FLASK_ADDR
 
-#define WATER_LOW_PIN 4
 #define ENABLE_SENSORS_PIN 12 // D6 on Wemos D1
+
+// Sensor global values
+float T_F = 0;
+float humid = 0;
 
 //ESP Web Server Library to host a web page
 #include <ESP8266WebServer.h>
@@ -43,11 +51,7 @@ boolean water_level_low = true;
 void setup() {
   
   Serial.begin(115200);
-  
-  // put your setup code here, to run once:
-  pinMode(ENABLE_SENSORS_PIN, OUTPUT);
-  delay(50);
-  pinMode(WATER_LOW_PIN, INPUT_PULLUP);
+
 
   // Configure static IP
   if (!WiFi.config(staticIP, gateway, subnet, dns1, dns2)) {
@@ -60,8 +64,11 @@ void setup() {
     Serial.println("ERROR: Did not connect to WiFi.");
   }
 
-  checkWaterLevel();
-  sendDataToServer(FLASK_ADDR);
+  pinMode(ENABLE_SENSORS_PIN, OUTPUT);
+  digitalWrite(ENABLE_SENSORS_PIN, HIGH); // Enable power to the sensor device
+  delay(50); // delay a little to let the sensor device power up
+  
+  //sendDataToServer(FLASK_ADDR);
 
   digitalWrite(ENABLE_SENSORS_PIN, LOW); // Disable the sensor power flow
   Serial.println("I'm going to sleep now");
@@ -76,21 +83,6 @@ void loop() {
 
   delay(500);
 
-}
-
-
-/* CHECK WATER LEVEL */
-void checkWaterLevel() {
-  
-  if (digitalRead(WATER_LOW_PIN) == LOW) {
-    Serial.println("Water level: OK");
-    water_level_low = false;
-  } else {
-    Serial.println("Water level: LOW");
-    water_level_low = true;
-  }
-
-  digitalWrite(ENABLE_SENSORS_PIN, LOW); // Disable the sensor power flow
 }
 
 
@@ -131,11 +123,13 @@ bool connectToWiFi() {
 
 
 /* POST DATA TO SERVER */
+
 bool sendDataToServer(String server_addr) {
 
   json_doc["id"] = deviceName;
-  json_doc["low"] = water_level_low;
-
+  json_doc["T_F"] = T_F;
+  json_doc["humid"] = humid;
+  
   http.begin(server_addr + "/datasend/sensors");
   http.addHeader("Content-Type", "application/json");
 
@@ -151,5 +145,40 @@ bool sendDataToServer(String server_addr) {
   Serial.println(payload);
 
   http.end();
+
+  return true;
   
 }
+
+/*
+// Function to periodically update the global temp and humidity
+void getTemperatureValue() {
+
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+
+  if (isnan(event.temperature)) {
+    Serial.println(F("Error reading temperature!"));
+    return;
+  }
+  else {
+    T_F = event.temperature*(9.0/5.0)+32;
+    Serial.print(F("Temperature: "));
+    Serial.print(T_F);
+    Serial.println(F("°F"));
+  }
+  // Get humidity event and print its value.
+  dht.humidity().getEvent(&event);
+  if (isnan(event.relative_humidity)) {
+    Serial.println(F("Error reading humidity!"));
+  }
+  else {
+    humid = event.relative_humidity;
+    Serial.print(F("Humidity: "));
+    Serial.print(humid);
+    Serial.println(F("%"));
+  }
+
+  
+}
+*/

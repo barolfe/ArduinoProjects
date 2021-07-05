@@ -1,7 +1,5 @@
 /*
- * Trying to phase this script out, it will do light and fan handling, and can be addressed directly at its IP address
- * Would like to transition to having a controller for the lights and fans separate, that talk to some web server either
- * running on a pi or a esp32 -- WIP
+
 */
 
 #include <ESP8266WiFi.h>
@@ -55,7 +53,7 @@ unsigned long time_last_update = 0;
 
 // Fan settings
 boolean fan_timer = false;
-boolean fan_off = false;
+boolean fan_off = true;
 unsigned int fan_level_day = 1024;
 unsigned int fan_level_set = 1024;
 unsigned int fan_level_night = 0; // Don't PWM plain old DC fans, it doesn't work right
@@ -110,7 +108,8 @@ void setup(void){
 
   server.begin();                  //Start server
   Serial.println("HTTP server started");
-  
+
+  analogWrite(fan_pin, 0); // Make sure the fans are off! (in case of a power outage, for example)
   setFan();
   updateDisplay();
 }

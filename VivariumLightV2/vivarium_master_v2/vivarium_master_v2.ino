@@ -1,10 +1,16 @@
 /*
- * Trying to phase this script out, it will do light and fan handling, and can be addressed directly at its IP address
- * Would like to transition to having a controller for the lights and fans separate, that talk to some web server either
- * running on a pi or a esp32 -- WIP
+V2 Plans:
+- Switch to ESP32 based NodeMCU
+- Control all vivarium lights (3x currently)
+- Status to multiple dispalys 
+- Synchronize lightning
+- Basic thermostating (disable/dim lights if a temperature is exceeded -- might offload this onto RaspberryPi though, since it gets the temperature data)
+- 
 */
 
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WebServer.h>
 #include <WiFiClient.h>
 #include "RTClib.h"
 #include <SPI.h>
@@ -14,9 +20,8 @@
 #include <Bounce2.h>
 #include <Solar.h> // stupid-simple class to get solar insolance
 
-//ESP Web Server Library to host a web page
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPClient.h>
+// Because the ESP32 doesn't have an analogWrite function
+#include <analogWrite.h>
 
 //For JSON encoding
 #include <ArduinoJson.h>
@@ -49,12 +54,12 @@ const char* deviceName = "viv_light1";
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //On board LED Connected to GPIO2
-#define white_warm_pin D5
-#define white_cool_pin D6
-#define fan_pin D7
+int white_warm_pin[] = {16, 15, 14};
+int white_cool_pin[] = {20, 18, 17};
+#define fan_pin D4
 
 // Input settings
-#define MODE_BUTTON D7
+#define MODE_BUTTON 7
 Bounce bounce = Bounce();
 unsigned int but_cnt = 0;
 
@@ -63,7 +68,7 @@ unsigned int but_cnt = 0;
 
 // Prototypes
 void setLights();
-void setLights(unsigned int cool_level, unsigned int warm_level);
+void setLights(unsigned int cool_level[], unsigned int warm_level[]);
 void setLights(boolean lights_on);
 
 // EEPROM stuff
@@ -74,7 +79,7 @@ void setLights(boolean lights_on);
 #include "weather_fx.h"
 
 //Declare a global object variable from the ESP8266WebServer class.
-ESP8266WebServer server(80); //Server on port 80
+WebServer server(80); //Server on port 80
 HTTPClient http;
 
 //==============================================================
@@ -131,17 +136,12 @@ void setup(void){
   //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   if (rtc.lostPower()) {
     Serial.println("RTC lost power, let's set the time!");
-    // When time needs to be set on a new device, or after a power loss, the
-    // following line sets the RTC to the date & time this sketch was compiled
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    // This line sets the RTC with an explicit date & time, for example to set
-    // January 21, 2014 at 3am you would call:
-    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
   }
   
 
   // WIFI setup
-  WiFi.hostname(deviceName);      // DHCP Hostname (useful for finding device for static lease)
+  WiFi.setHostname(deviceName);      // DHCP Hostname (useful for finding device for static lease)
   if (!WiFi.config(staticIP, subnet, gateway, dns1, dns2)) {
     Serial.println("Static IP failed to configure");
   }
@@ -193,6 +193,7 @@ void loop(void){
 
 
 void handleButton() {
+  /* Temporarilty disabled
   if ( bounce.fell() ) {
     Serial.println(F("Button was pressed!"));
     but_cnt = (but_cnt + 1) % 5;
@@ -210,7 +211,7 @@ void handleButton() {
     if (but_cnt == 1) {
       timer_mode_stored = timer_mode;
       timer_mode = false;
-      setLights(but_cnt*100, but_cnt*100);
+      setLights({but_cnt*100,, but_cnt*100);
     } 
     if (but_cnt > 1) {
       setLights(2*but_cnt*100, 2*but_cnt*100);
@@ -218,6 +219,7 @@ void handleButton() {
 
      updateDisplay();
   }
+  */
 }
 
 //===============================================================
@@ -230,12 +232,25 @@ void handleIncomingData() {
    Serial.print(String(i) + " ");  //print id
    Serial.print("\"" + String(server.argName(i)) + "\" ");  //print name
    Serial.println("\"" + String(server.arg(i)) + "\"");  //print value
-   if (server.argName(i) == "warm") {
-    warm_level_set = server.arg(i).toInt();
+
+
+   // LIGHT SETTINGS
+   unsigned int light_id = 0;
+   if (server.argName(i) == "id") {
+    light_id = server.arg(i).toInt();
    }
-   if (server.argName(i) == "cool") {
-    cool_level_set = server.arg(i).toInt();
-   }
+
+   // Must now specify a light ID (1, 2, or 3) to address
+   if ((light_id != 0) && (light_id <= n_lights)) {
+     if (server.argName(i) == "warm") {
+      warm_level_set[light_id-1] = server.arg(i).toInt();
+     }
+ 
+     if (server.argName(i) == "cool") {
+      cool_level_set[light_id-1] = server.arg(i).toInt();
+     }
+   } 
+
 
    if (server.argName(i) == "hour1") {
     hour1 = server.arg(i).toInt();
@@ -247,6 +262,7 @@ void handleIncomingData() {
     solar.setDaylightParameters(hour1, hour2);
    }
 
+  // STORM SETTINGS
   if (server.argName(i) == "thunder") {
     if (server.arg(i) == "on") {
       b_in_thunderstorm = true;
@@ -258,7 +274,9 @@ void handleIncomingData() {
   if (server.argName(i) == "lightning") {
     lightningFlash(random(4));
   }
-  
+
+
+  // SOLAR SETTINGS
   if (server.argName(i) == "solar") {
     if (server.arg(i) == "on") {
       solar_emulation = true;
@@ -267,7 +285,9 @@ void handleIncomingData() {
     }
     setLightsToTimeOfDay();
    }
-   
+
+
+   // FAN SETTINGS
    if (server.argName(i) == "fan") {
     fan_level_set = server.arg(i).toInt();
    }
@@ -347,9 +367,10 @@ void handleRequest() {
 
      // Asking what the light levels are
     if (server.argName(i) == "config") {
+
       json_doc["timer"] = timer_mode ? "on" : "off";
-      json_doc["cool"] = cool_level_set;
-      json_doc["warm"] = warm_level_set;
+      json_doc["cool"] = cool_level_set[0];
+      json_doc["warm"] = warm_level_set[0];
       json_doc["solar"] = solar_emulation ? "on" : "off";
       json_doc["fan"] = fan_off ? "off" : "on";
       json_doc["manualon"] = manual_on ? "on" : "off";
@@ -357,6 +378,16 @@ void handleRequest() {
       json_doc["fandur"] = fan_duration;
       json_doc["hour1"] = hour1;
       json_doc["hour2"] = hour2;
+      
+      JsonArray cool_levels = json_doc.createNestedArray("cool_levels");
+      for (int i = 0; i < n_lights; i++) {
+        cool_levels.add(cool_level_set[i]);
+      }
+
+      JsonArray warm_levels = json_doc.createNestedArray("warm_levels");
+      for (int i = 0; i < n_lights; i++) {
+        warm_levels.add(warm_levels[i]);
+      }
   
       Serial.println("Sending this data:");
       serializeJson(json_doc, Serial);
@@ -364,6 +395,7 @@ void handleRequest() {
 
       // print the data to the return string so we can send it (below)
       serializeJson(json_doc, return_str);
+      
   
     }
 
@@ -397,8 +429,10 @@ void setSolarValues() {
       float hour_frac = float(now.hour()) + now.minute()/60.0;
       float I = solar.getFromSine(hour_frac);
 
-      warm_level_cur_solar = warm_level_set*I;
-      cool_level_cur_solar = cool_level_set*I;
+      for (int i = 0; i < n_lights; i++) {
+        warm_level_cur_solar[i] = warm_level_set[i]*I;
+        cool_level_cur_solar[i] = cool_level_set[i]*I;
+      }
 }
 
 void setLightsToTimeOfDay() {
@@ -410,30 +444,33 @@ void setLightsToTimeOfDay() {
 void setLightsToTimeOfDay(DateTime now) {
 
   if (b_in_thunderstorm) { return; } // Don't set lights to current time of day if we're in a thunderstorm!
-  
-  if ( (now.hour() >= hour1) && (now.hour() < hour2) ) {
+
+  for (int i = 0; i < n_lights; i++) {
+    if ( (now.hour() >= hour1) && (now.hour() < hour2) ) {
     // will setup to follow an intensity curve in the future
     Serial.println("Inside hour bounds, lights ON");
+
     
     if (solar_emulation) {
-      //float hour_frac = float(now.hour()) + now.minute()/60.0;
-      //float I = solar.getInsolance(hour_frac); // Technically accurate, but has some issues
-      //float I = solar.getMoreSquareSine(hour_frac); // More bright light in the afternoon (gets to the peak max faster)
-      //float I = solar.getFromSine(hour_frac);
-      
-      warm_level_cur = warm_level_cur_solar;
-      cool_level_cur = cool_level_cur_solar;
-      
-      analogWrite(white_warm_pin, int(warm_level_cur));
-      analogWrite(white_cool_pin, int(cool_level_cur));
-    } else { // simple mode
-      analogWrite(white_cool_pin, cool_level_set);
-      analogWrite(white_warm_pin, warm_level_set);
+        //float hour_frac = float(now.hour()) + now.minute()/60.0;
+        //float I = solar.getInsolance(hour_frac); // Technically accurate, but has some issues
+        //float I = solar.getMoreSquareSine(hour_frac); // More bright light in the afternoon (gets to the peak max faster)
+        //float I = solar.getFromSine(hour_frac);
+        
+        warm_level_cur[i] = warm_level_cur_solar[i];
+        cool_level_cur[i] = cool_level_cur_solar[i];
+        
+        analogWrite(white_warm_pin[i], int(warm_level_cur[i]), 1023);
+        analogWrite(white_cool_pin[i], int(cool_level_cur[i]), 1023);
+      } else { // simple mode
+        analogWrite(white_cool_pin[i], cool_level_set[i], 1023);
+        analogWrite(white_warm_pin[i], warm_level_set[i], 1023);
+      }
+    } else {
+      Serial.println("Outside hour bounds, lights OFF");
+      analogWrite(white_cool_pin[i], 0, 1023);
+      analogWrite(white_warm_pin[i], 0, 1023);
     }
-  } else {
-    Serial.println("Outside hour bounds, lights OFF");
-    analogWrite(white_cool_pin, 0);
-    analogWrite(white_warm_pin, 0);
   }
 }
 
@@ -461,14 +498,14 @@ void updateDisplay() {
   // Library will draw what it can and the rest will be clipped.
   display.print(F("Cool:"));
   display.print(" ");
-  display.print(cool_level_cur);
+  display.print(cool_level_cur[0]); // COME BACK TO THIS
   display.print(F("/")); 
-  display.println(cool_level_set);
+  display.println(cool_level_set[0]);
   display.print(F("Warm:"));
   display.print(" ");
-  display.print(warm_level_cur);
+  display.print(warm_level_cur[0]);
   display.print(F("/")); 
-  display.println(warm_level_set);
+  display.println(warm_level_set[0]);
 
   display.print(F("On: "));
   display.print(hour1);
@@ -513,31 +550,35 @@ void setLights() {
   setLights(true);
 }
 
-void setLights(unsigned int cool_level, unsigned int warm_level) {
-    cool_level_cur = cool_level;
-    warm_level_cur = warm_level;
-    analogWrite(white_cool_pin, cool_level);
-    analogWrite(white_warm_pin, warm_level);
+void setLights(unsigned int cool_level[], unsigned int warm_level[]) {
+  for (int i = 0; i < n_lights; i++) {
+    cool_level_cur[i] = cool_level[i];
+    warm_level_cur[i] = warm_level[i];
+    analogWrite(white_cool_pin[i], cool_level[i], 1023);
+    analogWrite(white_warm_pin[i], warm_level[i], 1023);
+  }
 }
 
 void setLights(boolean lights_on) {
   Serial.println("Setting light level inside setLights()");
 
-  if (!lights_on) {
-    warm_level_cur = 0;
-    cool_level_cur = 0;
-    
-    analogWrite(white_cool_pin, 0);
-    analogWrite(white_warm_pin, 0);
-    return;
-  }
-  // otherwise:
-  if (!timer_mode && manual_on) {
-    warm_level_cur = warm_level_set;
-    cool_level_cur = cool_level_set;
-    
-    analogWrite(white_cool_pin, cool_level_set);
-    analogWrite(white_warm_pin, warm_level_set);
+  for (int i = 0;  i++; i < n_lights) {
+    if (!lights_on) {
+      warm_level_cur[i] = 0;
+      cool_level_cur[i] = 0;
+      
+      analogWrite(white_cool_pin[i], 0, 1023);
+      analogWrite(white_warm_pin[i], 0, 1023);
+      return;
+    }
+    // otherwise:
+    if (!timer_mode && manual_on) {
+      warm_level_cur[i] = warm_level_set[i];
+      cool_level_cur[i] = cool_level_set[i];
+      
+      analogWrite(white_cool_pin[i], cool_level_set[i], 1023);
+      analogWrite(white_warm_pin[i], warm_level_set[i], 1023);
+    }
   }
 
   if (!timer_mode && !manual_on) {
@@ -568,7 +609,7 @@ void setFan() {
 }
 
 void setFan(boolean fan_on) {
-  /*
+  
   if (fan_on && (fan_level_set == 1024)) {
     return;
   }
@@ -599,12 +640,14 @@ void setFan(boolean fan_on) {
     Serial.println("Bad response");
   }
   http.end();
-  */
+  
 }
 
 
 // Turn off ESP8266 / NodeMCU LEDs
 void turnOffOnboardLEDs() {
+  /*
   digitalWrite(2, HIGH);
   digitalWrite(LED_BUILTIN, HIGH);
+  */
 }

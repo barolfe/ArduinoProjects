@@ -4,7 +4,9 @@
  * running on a pi or a esp32 -- WIP
 */
 
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WebServer.h>
 #include <WiFiClient.h>
 #include "RTClib.h"
 #include <SPI.h>
@@ -14,9 +16,8 @@
 #include <Bounce2.h>
 #include <Solar.h> // stupid-simple class to get solar insolance
 
-//ESP Web Server Library to host a web page
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPClient.h>
+// Because the ESP32 doesn't have an analogWrite function
+#include <analogWrite.h>
 
 //For JSON encoding
 #include <ArduinoJson.h>
@@ -49,12 +50,12 @@ const char* deviceName = "viv_light1";
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //On board LED Connected to GPIO2
-#define white_warm_pin D5
-#define white_cool_pin D6
-#define fan_pin D7
+#define white_warm_pin 18 // D2
+#define white_cool_pin 19 // D4
+#define fan_pin 35 // D18
 
 // Input settings
-#define MODE_BUTTON D7
+#define MODE_BUTTON 34 // D5
 Bounce bounce = Bounce();
 unsigned int but_cnt = 0;
 
@@ -74,7 +75,7 @@ void setLights(boolean lights_on);
 #include "weather_fx.h"
 
 //Declare a global object variable from the ESP8266WebServer class.
-ESP8266WebServer server(80); //Server on port 80
+WebServer server(80); //Server on port 80
 HTTPClient http;
 
 //==============================================================
@@ -141,7 +142,7 @@ void setup(void){
   
 
   // WIFI setup
-  WiFi.hostname(deviceName);      // DHCP Hostname (useful for finding device for static lease)
+  WiFi.setHostname(deviceName);      // DHCP Hostname (useful for finding device for static lease)
   if (!WiFi.config(staticIP, subnet, gateway, dns1, dns2)) {
     Serial.println("Static IP failed to configure");
   }
@@ -424,16 +425,16 @@ void setLightsToTimeOfDay(DateTime now) {
       warm_level_cur = warm_level_cur_solar;
       cool_level_cur = cool_level_cur_solar;
       
-      analogWrite(white_warm_pin, int(warm_level_cur));
-      analogWrite(white_cool_pin, int(cool_level_cur));
+      analogWrite(white_warm_pin, int(warm_level_cur), 1023);
+      analogWrite(white_cool_pin, int(cool_level_cur), 1023);
     } else { // simple mode
-      analogWrite(white_cool_pin, cool_level_set);
-      analogWrite(white_warm_pin, warm_level_set);
+      analogWrite(white_cool_pin, cool_level_set, 1023);
+      analogWrite(white_warm_pin, warm_level_set, 1023);
     }
   } else {
     Serial.println("Outside hour bounds, lights OFF");
-    analogWrite(white_cool_pin, 0);
-    analogWrite(white_warm_pin, 0);
+    analogWrite(white_cool_pin, 0, 1023);
+    analogWrite(white_warm_pin, 0, 1023);
   }
 }
 
@@ -516,8 +517,8 @@ void setLights() {
 void setLights(unsigned int cool_level, unsigned int warm_level) {
     cool_level_cur = cool_level;
     warm_level_cur = warm_level;
-    analogWrite(white_cool_pin, cool_level);
-    analogWrite(white_warm_pin, warm_level);
+    analogWrite(white_cool_pin, cool_level, 1023);
+    analogWrite(white_warm_pin, warm_level, 1023);
 }
 
 void setLights(boolean lights_on) {
@@ -527,8 +528,8 @@ void setLights(boolean lights_on) {
     warm_level_cur = 0;
     cool_level_cur = 0;
     
-    analogWrite(white_cool_pin, 0);
-    analogWrite(white_warm_pin, 0);
+    analogWrite(white_cool_pin, 0, 1023);
+    analogWrite(white_warm_pin, 0, 1023);
     return;
   }
   // otherwise:
@@ -536,8 +537,8 @@ void setLights(boolean lights_on) {
     warm_level_cur = warm_level_set;
     cool_level_cur = cool_level_set;
     
-    analogWrite(white_cool_pin, cool_level_set);
-    analogWrite(white_warm_pin, warm_level_set);
+    analogWrite(white_cool_pin, cool_level_set, 1023);
+    analogWrite(white_warm_pin, warm_level_set, 1023);
   }
 
   if (!timer_mode && !manual_on) {
